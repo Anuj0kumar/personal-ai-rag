@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Knowledge Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col items-center justify-center">
+
+    <div id="auth-screen" class="bg-white p-8 rounded-lg shadow-md w-96 relative overflow-hidden">
+        
+        <div id="login-view" class="transition-all duration-300">
+            <h2 class="text-2xl font-bold mb-4 text-center text-gray-800">Welcome Back</h2>
+            <input id="login-username" type="text" placeholder="Username" class="w-full mb-3 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input id="login-password" type="password" placeholder="Password" class="w-full mb-4 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="login()" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 font-semibold">Login</button>
+            
+            <p id="login-msg" class="text-sm mt-3 text-center hidden"></p>
+            
+            <div class="mt-4 text-center text-sm text-gray-600">
+                Don't have an account? 
+                <button onclick="switchView('register')" class="text-blue-500 hover:underline">Register here</button>
+            </div>
+        </div>
+
+        <div id="register-view" class="hidden transition-all duration-300">
+            <h2 class="text-2xl font-bold mb-4 text-center text-gray-800">Create Account</h2>
+            <input id="reg-username" type="text" placeholder="Choose a Username" class="w-full mb-3 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500">
+            <input id="reg-password" type="password" placeholder="Choose a Password" class="w-full mb-4 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500">
+            <button onclick="registerUser()" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 font-semibold">Register</button>
+            
+            <p id="reg-msg" class="text-sm mt-3 text-center hidden"></p>
+            
+            <div class="mt-4 text-center text-sm text-gray-600">
+                Already have an account? 
+                <button onclick="switchView('login')" class="text-blue-500 hover:underline">Login here</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-screen" class="hidden flex-col w-full max-w-2xl h-[80vh] bg-white rounded-lg shadow-md overflow-hidden">
+        
+        <div class="bg-gray-800 text-white p-4 flex justify-between items-center">
+            <h2 class="text-lg font-bold">RAG AI Assistant</h2>
+            <div>
+                <input type="file" id="pdf-upload" class="hidden" accept=".pdf" onchange="uploadPDF()">
+                <label for="pdf-upload" class="bg-green-500 px-3 py-1 rounded cursor-pointer hover:bg-green-600 text-sm">📄 Upload PDF</label>
+                <button onclick="logout()" class="ml-2 bg-red-500 px-3 py-1 rounded hover:bg-red-600 text-sm">Logout</button>
+            </div>
+        </div>
+
+        <div id="chat-box" class="flex-1 p-4 overflow-y-auto bg-gray-50 flex flex-col space-y-3">
+            <div class="bg-gray-200 p-3 rounded-lg self-start max-w-[80%]">Hello! Upload a PDF or ask me a question.</div>
+        </div>
+
+        <div class="p-4 border-t flex">
+            <input id="message-input" type="text" placeholder="Ask something..." class="flex-1 p-2 border rounded-l focus:outline-none" onkeypress="if(event.key === 'Enter') sendMessage()">
+            <button onclick="sendMessage()" class="bg-blue-500 text-white px-4 py-2 rounded-r hover:bg-blue-600">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000";
+        let token = localStorage.getItem("token");
+
+        // Check if already logged in
+        if (token) showChat();
+
+// UI Navigation Functions
+        function switchView(view) {
+            const loginView = document.getElementById("login-view");
+            const regView = document.getElementById("register-view");
+            const loginMsg = document.getElementById("login-msg");
+            const regMsg = document.getElementById("reg-msg");
+
+            // Clear old messages and inputs
+            loginMsg.classList.add("hidden");
+            regMsg.classList.add("hidden");
+
+            if (view === 'register') {
+                loginView.classList.add("hidden");
+                regView.classList.remove("hidden");
+            } else {
+                regView.classList.add("hidden");
+                loginView.classList.remove("hidden");
+            }
+        }
+
+        function showMessage(elementId, text, isError) {
+            const el = document.getElementById(elementId);
+            el.innerText = text;
+            el.className = `text-sm mt-3 text-center ${isError ? 'text-red-500' : 'text-green-500'}`;
+            el.classList.remove("hidden");
+        }
+
+        // API Interaction Functions
+        async function registerUser() {
+            const user = document.getElementById("reg-username").value.trim();
+            const pass = document.getElementById("reg-password").value.trim();
+
+            if (!user || !pass) {
+                showMessage("reg-msg", "Both fields are required!", true);
+                return;
+            }
+
+            const res = await fetch(`${API_URL}/auth/register?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`, {
+                method: "POST"
+            });
+
+            if (res.ok) {
+                // Clear register inputs
+                document.getElementById("reg-username").value = "";
+                document.getElementById("reg-password").value = "";
+                
+                // Switch back to login view and show success message
+                switchView('login');
+                showMessage("login-msg", "Account created successfully! Please log in.", false);
+            } else {
+                const data = await res.json();
+                showMessage("reg-msg", data.detail || "Registration failed.", true);
+            }
+        }
+
+        async function login() {
+            const formData = new URLSearchParams();
+            formData.append("username", document.getElementById("login-username").value.trim());
+            formData.append("password", document.getElementById("login-password").value.trim());
+
+            const res = await fetch(`${API_URL}/auth/token`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formData
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem("token", data.access_token);
+                token = data.access_token;
+                
+                // Hide auth screen and show chat screen
+                document.getElementById("auth-screen").classList.add("hidden");
+                document.getElementById("chat-screen").classList.remove("hidden");
+                document.getElementById("chat-screen").classList.add("flex");
+            } else {
+                showMessage("login-msg", "Invalid username or password", true);
+            }
+        }
+        
+
+        function logout() {
+            localStorage.removeItem("token");
+            location.reload();
+        }
+
+        function showChat() {
+            document.getElementById("login-screen").classList.add("hidden");
+            document.getElementById("chat-screen").classList.remove("hidden");
+            document.getElementById("chat-screen").classList.add("flex");
+        }
+
+        function addMessage(text, isUser) {
+            const chatBox = document.getElementById("chat-box");
+            const div = document.createElement("div");
+            div.className = `p-3 rounded-lg max-w-[80%] ${isUser ? 'bg-blue-500 text-white self-end' : 'bg-gray-200 text-black self-start'}`;
+            div.innerText = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+
+        function showTypingIndicator() {
+            const chatBox = document.getElementById("chat-box");
+            const div = document.createElement("div");
+            div.id = "typing-indicator";
+            // Tailwind classes for a grey bubble with flexbox layout
+            div.className = "p-3 rounded-lg bg-gray-200 text-gray-500 self-start max-w-[80%] flex items-center space-x-1 text-sm font-medium";
+            
+            // Add bouncing dots using Tailwind's built-in animate-bounce
+            div.innerHTML = `
+                <span>Thinking</span>
+                <span class="animate-bounce delay-75">.</span>
+                <span class="animate-bounce delay-150">.</span>
+                <span class="animate-bounce delay-300">.</span>
+            `;
+            
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const indicator = document.getElementById("typing-indicator");
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+
+        async function sendMessage() {
+            const input = document.getElementById("message-input");
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            // 1. Show User Message
+            addMessage(msg, true);
+            input.value = "";
+
+            // 2. Show the "Thinking..." animation
+            showTypingIndicator();
+
+            try {
+                // 3. Call the API
+                const res = await fetch(`${API_URL}/ai/ask`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ message: msg, session_id: "browser" })
+                });
+
+                const data = await res.json();
+                
+                // 4. Remove animation and show the AI's real answer
+                removeTypingIndicator();
+                addMessage(data.reply || "Error getting response", false);
+                
+            } catch (error) {
+                // Just in case the server crashes, remove the loader and show an error
+                removeTypingIndicator();
+                addMessage("Connection error. Is the server running?", false);
+            }
+        }
+
+        async function uploadPDF() {
+            const fileInput = document.getElementById("pdf-upload");
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            // 1. Show user action
+            addMessage(`Uploading ${file.name}...`, true);
+            
+            // 2. Show "Thinking..." while the backend chunks the PDF
+            showTypingIndicator();
+
+            try {
+                const res = await fetch(`${API_URL}/documents/pdf`, {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}` },
+                    body: formData
+                });
+
+                const data = await res.json();
+                
+                // 3. Remove loader and show result
+                removeTypingIndicator();
+                addMessage(data.status === "success" ? `PDF Indexed successfully! You can now ask questions about it.` : `Upload failed.`, false);
+                
+            } catch (error) {
+                removeTypingIndicator();
+                addMessage("Failed to upload the document.", false);
+            }
+        }
+    </script>
+</body>
+</html>
